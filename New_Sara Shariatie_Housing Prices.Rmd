@@ -1,0 +1,936 @@
+---
+title: "Housing Prices"
+author: "Sara Shariatie"
+date: "November 10, 2017"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+For getting the data, I got current working directory and ensure all files are put there. Then read test and train CSV files into dataframe testdf and traindf.
+
+```{r}
+getwd() 
+testdf <- read.csv(file= "C:/Users/Owner/Desktop/Projects/Housing Prices/CSV_txt_files/test.csv",header = T,stringsAsFactors = F, na.strings = c("","NA"), sep = ',')
+traindf <- read.csv(file= "C:/Users/Owner/Desktop/Projects/Housing Prices/CSV_txt_files/train.csv",header = T,stringsAsFactors = F, na.strings = c("","NA"), sep = ',') 
+print(summary(testdf))
+print(summary(traindf))
+
+```
+Original test.csv does not have a column for SalePrice, so I Added column SalePrice to test set with 0. Then
+Combine traindf and testdf into  dataframe alldf and explore alldf.Explored min, max, mean, mode, median of each variable with table function. Used sapply to get classification of variables.
+
+```{r}
+testdf$SalePrice <- 0 
+alldf <- rbind(traindf,testdf)
+#View(alldf)
+for (i in 2:length(alldf)) {
+  if (is.character(alldf[,i]) | is.factor(alldf[,i]))
+    print(table(alldf[,i],useNA = 'ifany'))
+  else
+    print(summary(alldf[,i]))
+}
+sapply(alldf,class)
+```
+The regression problem with this dataset is the use of NA in classifier variables that are characters. For example, for the variable "Alley" NA means that there is No alley. I tried modeling the data simply with lm function, and althought it worked, it returened a co-efficient for each element of a variable which is character, categorical. This made it very difficul to create an accurate model. I will create  new columns for these variables in the data frame using binary classification; if the attribute exists on the given house it will have a 1 in the first column indicating that yes the house has the feature. I will look at the distribution of these variables, and create new columns to weight them in attempt to create a better representation of the features in the data. 
+MSZONING:
+Create new column for each type of zoning- y/n for zoning type
+
+```{r}
+table(alldf$MSZoning, useNA = 'ifany') # c (all),FV, RH, RL, RM
+alldf$RH <- 0
+alldf$RH[alldf$MSZoning == "RH"] <- 1
+alldf$C_all <- 0
+alldf$C_all[alldf$MSZoning == "C (all)"] <- 1
+alldf$FV <- 0 
+alldf$FV[alldf$MSZoning == "FV"] <- 1
+alldf$RM <- 0
+alldf$RM[alldf$MSZoning == "RM"] <- 1
+alldf$RL <- 0
+alldf$RL[alldf$MSZoning == "RL"] <- 1
+
+```
+Street:
+create new column "Paved"- if pave, y/n. distribution heavily skewed toward pave.
+
+```{r}
+table(alldf$Street, useNA = 'ifany') # Grvl, pave
+alldf$Paved <- 0
+alldf$Paved[alldf$Street == "Pave"] <- 1
+alldf$Paved[alldf$Street != "Pave"] <- 0
+
+```
+Alley:
+created 2 new columns- if has Alley, is it paved or graveled? If no Alley, none <- 1. Most houses do not have an Alley- but would like capture effect on price if they do have one. 
+
+```{r}
+table(alldf$Alley, useNA = 'ifany') # Grvl, pave
+alldf$Ayes <- 0
+alldf$Ayes[alldf$Alley == "Pave"] <- 1
+alldf$Ayes[alldf$Alley == "Grvl"] <- 1
+alldf$ANone <-0
+alldf$ANone[is.na(alldf$Alley)] <- 1 
+```
+LotShape:
+Distribution heavily skewed toward "Reg". Created two columns to separate out IR and Reg variables.
+
+
+```{r}
+table(alldf$LotShape, useNA = 'ifany')#  IR1  IR2  IR3  Reg
+alldf$LSIrr <- 0
+alldf$LSIrr[alldf$LotShape == "IR3"] <- 1
+alldf$LSIrr[alldf$LotShape == "IR2"] <- 1
+alldf$LSIrr[alldf$LotShape == "IR1"] <- 1
+alldf$LSReg <- 0
+alldf$LSReg[alldf$LotShape == "Reg"] <- 1
+```
+LandCountour:
+Distribution is heavily skewed toward Lvl. Most houses are level.
+
+```{r}
+table(alldf$LandContour, useNA = 'ifany') #Bnk  HLS  Low  Lvl
+alldf$LCbad <- 0
+alldf$LCbad[alldf$LandContour == "Low"] <- 1
+alldf$LCbad[alldf$LandContour == "Bnk"] <- 1
+alldf$LCbad[alldf$LandContour == "HLS"] <- 1
+alldf$LCgood <- 0
+alldf$LCgood[alldf$LandContour == "Lvl"] <- 1
+
+```
+LotConfig:
+Distribtuion is heavily skewed to "Inside", separate this column out.
+
+```{r}
+table(alldf$LotConfig, useNA = 'ifany') #Corner CulDSac     FR2     FR3  Inside 
+alldf$LCout <- 0
+alldf$LCout[alldf$LotConfig == "FR3"] <- 1
+alldf$LCout[alldf$LotConfig == "FR2"] <- 1
+alldf$LCout[alldf$LotConfig == "CulDSac"] <- 1
+alldf$LCout[alldf$LotConfig == "Corner"] <- 1
+alldf$LCIn <- 0
+alldf$LCIn[alldf$LotConfig == "Inside"] <- 1
+
+```
+Utilities:
+All houses except 1 are on "All public", so create new columns where "Allpub"= 1. Since all houses are the same, NoSwa shouldn't be a significant variable.
+
+```{r}
+table(alldf$Utilities, useNA = 'ifany')#AllPub NoSeWa 
+alldf$pubU <- 0
+alldf$pubU[alldf$Utilities == "AllPub"] <- 1
+
+```
+LandSlope:
+Very few houses are severly sloped- create two columns to weight accordingly
+
+```{r}
+table(alldf$LandSlope, useNA = 'ifany') #Gtl  Mod  Sev 
+alldf$SS <- 0
+alldf$SS[alldf$LandSlope == "Sev"] <- 1
+alldf$SM <- 0
+alldf$SM[alldf$LandSlope == "Mod"] <- 1
+alldf$SM[alldf$LandSlope == "Gtl"] <- 1
+
+```
+Neighborhood:
+This is obviously important feature. It is tough to give weight to different neighborhoods when you don't know the town. I sorted them into 4 columns based on the distirubtion in the dataset. 
+
+
+```{r}
+table(alldf$Neighborhood, useNA = 'ifany') #Blmngtn Blueste  BrDale BrkSide ClearCr CollgCr Crawfor Edwards Gilbert  IDOTRR MeadowV Mitchel   NAmes NoRidge NPkVill NridgHt  NWAmes OldTown  Sawyer SawyerW Somerst StoneBr   SWISU  Timber Veenker 
+alldf$Neighbor <- 0
+alldf$Neighbor[alldf$Neighborhood == "Blueste"] <- 1
+alldf$Neighbor[alldf$Neighborhood == "NPkVill"] <- 1
+alldf$Neighbor[alldf$Neighborhood == "Veenker"] <- 1
+alldf$Neighbor[alldf$Neighborhood == "BrDale"] <- 1
+alldf$Neighbor[alldf$Neighborhood == "Blmngtn"] <- 1
+alldf$Neighbor[alldf$Neighborhood == "MeadowV"] <- 1
+alldf$Neighbor[alldf$Neighborhood == "StoneBr"] <- 1
+alldf$Neighbor[alldf$Neighborhood == "SWISU"] <- 1
+alldf$Neighbor[alldf$Neighborhood == "ClearCr"] <- 1
+alldf$Neighbor[alldf$Neighborhood == "IDOTRR"] <- 1
+alldf$Neighbor[alldf$Neighborhood == "Timber"] <- 1
+alldf$Neighbor[alldf$Neighborhood == "NoRidge"] <- 1 
+alldf$NN <- 0
+alldf$NN[alldf$Neighborhood == "Mitchel"] <- 1
+alldf$NN[alldf$Neighborhood == "Crawfor"] <- 1
+alldf$NN[alldf$Neighborhood == "BrkSide"] <- 1
+alldf$NN[alldf$Neighborhood == "SawyerW"] <- 1
+alldf$NN[alldf$Neighborhood == "NWAmes"] <- 1
+alldf$NS <- 0
+alldf$NS[alldf$Neighborhood == "Sawyer"] <- 1
+alldf$NS[alldf$Neighborhood == "NridgHt"] <- 1
+alldf$NS[alldf$Neighborhood == "Gilbert"] <- 1
+alldf$NS[alldf$Neighborhood == "Somerst"] <- 1
+alldf$NS[alldf$Neighborhood == "Edwards"] <- 1
+#most populated neighborhood
+alldf$NO[alldf$Neighborhood == "OldTown"] <- 1
+alldf$NO[alldf$Neighborhood == "CollgCr"] <- 1
+alldf$NO[alldf$Neighborhood == "NAmes"] <- 1
+
+```
+Condition 1:
+Proximity Condition 1- heavily skewd to "norm"
+
+```{r}
+table(alldf$Condition1, useNA = 'ifany')#Artery  Feedr   Norm   PosA   PosN   RRAe   RRAn   RRNe   RRNn 
+alldf$Con1[alldf$Condition1 != "Norm"] <- 0
+alldf$Con1[alldf$Condition1 == "Norm"] <- 1
+
+```
+Proximity Condition 2- same as Condition1
+
+```{r}
+table(alldf$Condition2, useNA = 'ifany')#Artery  Feedr   Norm   PosA   PosN   RRAe   RRAn   RRNn 
+alldf$Con2[alldf$Condition2 != "Norm"] <- 0
+alldf$Con2[alldf$Condition2 == "Norm"] <- 1
+
+```
+BldgType:
+Building Type distribution is heavily skewed to 1Fam. 
+
+```{r}
+table(alldf$BldgType, useNA = 'ifany')#1Fam 2fmCon Duplex  Twnhs TwnhsE
+alldf$Bltype[alldf$BldgType != "1Fam"] <- 0
+alldf$Bltype[alldf$BldgType == "1Fam"] <- 1
+```
+HouseStyle:
+House Style- 3 new columns to reflect distribution in set. 1Story is the mode.
+
+```{r}
+table(alldf$HouseStyle, useNA = 'ifany')#1.5Fin 1.5Unf 1Story 2.5Fin 2.5Unf 2Story SFoyer   SLvl 
+alldf$HStyle<-0
+alldf$HStyle[alldf$HouseStyle == "2.5Fin"] <- 1
+alldf$HStyle[alldf$HouseStyle == "2.5Unf"] <- 1
+alldf$HStyle[alldf$HouseStyle == "1.5Unf"] <- 1
+alldf$HStyle[alldf$HouseStyle == "SFoyer"] <- 1
+alldf$HSS <- 0
+alldf$HSS[alldf$HouseStyle == "SLvl"] <- 1
+alldf$HSS[alldf$HouseStyle == "1.5Fin"] <- 1
+alldf$HSS[alldf$HouseStyle == "2Story"] <- 1
+alldf$HS1 <- 0
+alldf$HS1[alldf$HouseStyle == "1Story"] <- 1
+
+```
+RoofStyle:
+heavily skewed to "Gable". created own column for Gable. 
+
+```{r}
+table(alldf$RoofStyle, useNA = 'ifany')#  Flat   Gable Gambrel     Hip Mansard    Shed 
+alldf$RStyle<-0
+alldf$RStyle[alldf$RoofStyle == "Shed"] <- 1
+alldf$RStyle[alldf$RoofStyle == "Mansard"] <- 1
+alldf$RStyle[alldf$RoofStyle == "Gambrel"] <- 1
+alldf$RStyle[alldf$RoofStyle == "Flat"] <- 1
+alldf$RStyle[alldf$RoofStyle == "Hip"] <- 1
+alldf$RStyleG <- 0
+alldf$RStyleG[alldf$RoofStyle == "Gable"] <- 1
+
+```
+RoofMaterial:
+Almost all use "CompShg".
+
+```{r}
+table(alldf$RoofMatl, useNA = 'ifany')#ClyTile CompShg Membran   Metal    Roll Tar&Grv WdShake WdShngl 
+alldf$RMatl[alldf$RoofMatl != "CompShg"] <- 0
+alldf$RMatl[alldf$RoofMatl == "CompShg"] <- 1
+
+```
+Exterior1st:
+Exterior covering on house. Create 3 new columns to reflect distribution. 
+
+```{r}
+table(alldf$Exterior1st, useNA = 'ifany')#AsbShng AsphShn BrkComm BrkFace  CBlock CemntBd HdBoard ImStucc MetalSd Plywood   Stone  Stucco VinylSd Wd Sdng WdShing 
+alldf$Ext1 <- 0
+alldf$Ext1[alldf$Exterior1st == "ImStucc"] <- 1
+alldf$Ext1[alldf$Exterior1st == "Stone"] <- 1
+alldf$Ext1[alldf$Exterior1st == "AsphShn"] <- 1
+alldf$Ext1[alldf$Exterior1st == "BrkComm"] <- 1
+alldf$Ext1[alldf$Exterior1st == "CBlock"] <- 1
+alldf$Ext1[alldf$Exterior1st == "AsbShng"] <- 1
+alldf$Ext1[alldf$Exterior1st == "Stucco"] <- 1
+alldf$Ext1[alldf$Exterior1st == "WdShing"] <- 1
+alldf$Ext1[alldf$Exterior1st == "BrkFace"] <- 1
+alldf$Ext1[alldf$Exterior1st == "CemntBd"] <- 1
+alldf$Ext1[alldf$Exterior1st == "Plywood"] <- 1
+alldf$Ext1i <- 0
+alldf$Ext1i[alldf$Exterior1st == "MetalSd"] <- 1
+alldf$Ext1i[alldf$Exterior1st == "HdBoard"] <- 1
+alldf$Ext1i[alldf$Exterior1st == "Wd Sdng"] <- 1
+alldf$Ext1ii <- 0
+alldf$Ext1ii[alldf$Exterior1st == "VinylSd"] <- 1
+
+```
+Exterior2nd:
+Exterior2nd Covering on house if it uses more than one type of material. Use same thinking as above for Exterior 1
+
+```{r}
+table(alldf$Exterior2nd, useNA = 'ifany')# AsbShng AsphShn Brk Cmn BrkFace  CBlock CmentBd HdBoard ImStucc MetalSd   Other Plywood   Stone  Stucco VinylSd Wd Sdng Wd Shng 
+alldf$Ext2 <- 0
+alldf$Ext2[alldf$Exterior2nd == "Other"] <- 1
+alldf$Ext2[alldf$Exterior2nd == "AsphShn"] <- 1
+alldf$Ext2[alldf$Exterior2nd == "Stone"] <- 1
+alldf$Ext2[alldf$Exterior2nd == "CBlock"] <- 1
+alldf$Ext2[alldf$Exterior2nd == "ImStucc"] <- 1
+alldf$Ext2[alldf$Exterior2nd == "Brk Cmn"] <- 1
+alldf$Ext2[alldf$Exterior2nd == "AsbShng"] <- 1
+alldf$Ext2[alldf$Exterior2nd == "Stucco"] <- 1
+alldf$Ext2[alldf$Exterior2nd == "BrkFace"] <- 1
+alldf$Ext2[alldf$Exterior2nd == "Wd Shng"] <- 1
+alldf$Ext2[alldf$Exterior2nd == "CmentBd"] <- 1
+alldf$Ext2i <- 0
+alldf$Ext2i[alldf$Exterior2nd == "Plywood"] <- 1
+alldf$Ext2i[alldf$Exterior2nd == "Wd Sdng"] <- 1
+alldf$Ext2i[alldf$Exterior2nd == "HdBoard"] <- 1
+alldf$Ext2i[alldf$Exterior2nd == "MetalSd"] <- 1
+alldf$Ext2ii <- 0
+alldf$Ext2ii[alldf$Exterior2nd == "VinylSd"] <- 1
+
+```
+MasVnrType:
+Masonry veneer type. Majority of house have none. But Masonary is expensive, so going to create a column for each scenario. 
+
+```{r}
+table(alldf$MasVnrType, useNA = 'ifany')#BrkCmn BrkFace    None   Stone 
+alldf$Mas <- 0
+alldf$Mas[alldf$MasVnrType == "BrkCmn"] <- 1
+alldf$Mas[alldf$MasVnrType == "Stone"] <- 1
+alldf$MasB <- 0
+alldf$MasB[alldf$MasVnrType == "BrkFace"] <- 1
+alldf$MasN <- 0
+alldf$MasN[alldf$MasVnrType == "None"] <- 1
+
+```
+ExterQual:
+ExternalQuality- Quality of materials used on exterior. Majority of house are "TA"- average/typical. Separate "TA"
+
+```{r}
+table(alldf$ExterQual, useNA = 'ifany')#Ex   Fa   Gd   TA 
+alldf$ExtQ <- 0
+alldf$ExtQ[alldf$ExterQual == "Fa"] <- 1
+alldf$ExtQ[alldf$ExterQual == "Ex"] <- 1
+alldf$ExtQ[alldf$ExterQual == "Gd"] <- 1
+alldf$ExtQ1 <- 0
+alldf$ExtQ1[alldf$ExterQual == "TA"] <- 1
+```
+ExterCond:
+ExterCond- condition of material on exterior. Same thinking as above.
+
+```{r}
+table(alldf$ExterCond, useNA = 'ifany')# Ex   Fa   Gd   Po   TA
+alldf$ExtC <-0
+alldf$ExtC[alldf$ExterCond == "Po"] <- 1
+alldf$ExtC[alldf$ExterCond == "Ex"] <- 1
+alldf$ExtC[alldf$ExterCond == "Fa"] <- 1
+alldf$ExtC[alldf$ExterCond == "Gd"] <- 1
+alldf$ExtC1 <-0
+alldf$ExtC1[alldf$ExterCond == "TA"] <- 1
+
+```
+Foundation:
+type of foundation. Almost all either "PConc" or "CBlock", so separate out those two individually.
+
+```{r}
+table(alldf$Foundation, useNA = 'ifany')#BrkTil CBlock  PConc   Slab  Stone   Wood 
+alldf$Fd <- 0
+alldf$Fd[alldf$Foundation == "Wood"] <- 1
+alldf$Fd[alldf$Foundation == "Stone"] <-1
+alldf$Fd[alldf$Foundation == "Slab"] <- 1
+alldf$Fd[alldf$Foundation == "BrkTil"] <- 1
+alldf$Fdi <- 0
+alldf$Fdi[alldf$Foundation == "CBlock"] <- 1
+alldf$Fdii <- 0
+alldf$Fdii[alldf$Foundation == "PConc"] <- 1
+
+```
+BsmtQual:
+evaluates height of basement. majority is either "Gd" or "TA". Separate out these columns.NA= "no basement""
+
+```{r}
+table(alldf$BsmtQual, useNA = 'ifany')#Ex   Fa   Gd   TA 
+alldf$BQ <- 0
+alldf$BQ[alldf$BsmtQual == "Fa"] <- 1
+alldf$BQ[is.na(alldf$BsmtQual)] <- 1
+alldf$BQ[alldf$BsmtQual == "Ex"] <- 1
+alldf$BQi <- 0
+alldf$BQi[alldf$BsmtQual == "Gd"] <- 1
+alldf$BQii <- 0
+alldf$BQii[alldf$BsmtQual == "TA"] <- 1
+
+```
+BsmtCond:
+condition of basement. Majority is "TA", separate out this column 
+```{r}
+table(alldf$BsmtCond, useNA = 'ifany')#Fa   Gd   Po   TA 
+alldf$BC <- 0
+alldf$BC[alldf$BsmtCond == "Po"] <- 1
+alldf$BC[is.na(alldf$BsmtCond)] <- 1
+alldf$BC[alldf$BsmtCond == "Fa"] <-1
+alldf$BC[alldf$BsmtCond == "Gd"] <- 1
+alldf$BCi <- 0
+alldf$BCi[alldf$BsmtCond == "TA"] <- 1
+
+```
+BsmtExposure:
+type of walkout. Majority is "No" no exposure. Separate this column out
+
+```{r}
+table(alldf$BsmtExposure, useNA = 'ifany')# Av   Gd   Mn   No 
+alldf$BE <- 0
+alldf$BE[is.na(alldf$BsmtExposure)] <- 1
+alldf$BE[alldf$BsmtExposure == "Mn"] <- 1
+alldf$BE[alldf$BsmtExposure == "Gd"] <- 1
+alldf$BE[alldf$BsmtExposure == "Av"] <- 1
+alldf$BEi <- 0
+alldf$BEi[alldf$BsmtExposure == "No"] <- 1
+
+```
+BsmtFinType1:
+rating of basement finished area. Most "Unf" or "GLQ". This should have impact on price, so going to create 4 columns to reflect distribution.
+
+```{r}
+table(alldf$BsmtFinType1, useNA = 'ifany')# ALQ BLQ GLQ LwQ Rec Unf 
+alldf$BFT <- 0
+alldf$BFT[is.na(alldf$BsmtFinType1)] <- 1
+alldf$BFT[alldf$BsmtFinType1 == "LwQ"] <- 1
+alldf$BFTi <- 0
+alldf$BFTi[alldf$BsmtFinType1 == "BLQ"] <- 1
+alldf$BFTi[alldf$BsmtFinType1 == "Rec"] <- 1
+alldf$BFTii <- 0
+alldf$BFTii[alldf$BsmtFinType1 == "ALQ"] <- 1
+alldf$BFTiii <-0
+alldf$BFTiii[alldf$BsmtFinType1 == "GLQ"] <- 1
+alldf$BFTiii[alldf$BsmtFinType1 == "Unf"] <- 1
+
+```
+BsmtFinType2:
+if multiple types/multiple rooms in basement. Almost all "Unf", separate this column out. 
+
+```{r}
+table(alldf$BsmtFinType2, useNA = 'ifany')# ALQ  BLQ  GLQ  LwQ  Rec  Unf 
+alldf$BFT2 <- 0
+alldf$BFT2[is.na(alldf$BsmtFinType2)] <- 1
+alldf$BFT2[alldf$BsmtFinType2 == "GLQ"] <- 1
+alldf$BFT2[alldf$BsmtFinType2 == "ALQ"] <- 1
+alldf$BFT2[alldf$BsmtFinType2 == "BLQ"] <- 1
+alldf$BFT2[alldf$BsmtFinType2 == "LwQ"] <- 1
+alldf$BFT2[alldf$BsmtFinType2 == "Rec"] <- 1
+alldf$BFT2i <- 0
+alldf$BFT2i[alldf$BsmtFinType2 == "Unf"] <- 1
+
+```
+Heating:
+Type of heating. Almost all have "GasA" Forced warm air furnace. Separate out. 
+
+```{r}
+table(alldf$Heating, useNA = 'ifany')# Floor  GasA  GasW  Grav  OthW  Wall 
+alldf$Heat <- 0
+alldf$Heat[alldf$Heating == "Floor"] <- 1
+alldf$Heat[alldf$Heating == "OthW"] <- 1
+alldf$Heat[alldf$Heating == "Wall"] <- 1
+alldf$Heat[alldf$Heating == "Grav"] <- 1
+alldf$Heat[alldf$Heating == "GasW"] <- 1
+alldf$Heati <- 0
+alldf$Heati[alldf$Heating == "GasA"] <- 1
+
+```
+HeatingQC:
+majority are "TA" or "Ex", separate these two columns out
+
+```{r}
+table(alldf$HeatingQC, useNA = 'ifany')#Ex   Fa   Gd   Po   TA 
+alldf$HeatQ <- 0
+alldf$HeatQ[alldf$HeatingQC == "Po"] <- 1
+alldf$HeatQ[alldf$HeatingQC == "Fa"] <- 1
+alldf$HeatQ[alldf$HeatingQC == "Gd"] <- 1
+alldf$HeatQi <- 0
+alldf$HeatQi[alldf$HeatingQC == "TA"] <- 1
+alldf$HeatQii <- 0
+alldf$HeatQii[alldf$HeatingQC == "Ex"] <- 1
+```
+CentralAir:
+Have or not? Majority is Yes.
+
+```{r}
+table(alldf$CentralAir, useNA = 'ifany')#N    Y 
+alldf$CA[alldf$CentralAir == "N"] <- 0
+alldf$CA[alldf$CentralAir != "N"] <- 1
+
+```
+Electrical:
+type of system. Majority is "SBrkr"- standard breaker
+
+```{r}
+table(alldf$Electrical, useNA = 'ifany')#FuseA FuseF FuseP   Mix SBrkr 
+alldf$E <- 0
+alldf$E[alldf$Electrical == "Mix"] <- 1
+alldf$E[alldf$Electrical == "FuseP"] <- 1
+alldf$E[alldf$Electrical == "FuseF"] <- 1
+alldf$E[alldf$Electrical == "FuseA"] <- 1
+alldf$Ei <- 0
+alldf$Ei[alldf$Electrical == "SBrkr"] <- 1
+
+```
+KitchenQual:
+determine quality of kitchen. Majority are "TA" or "Gd"
+
+```{r}
+table(alldf$KitchenQual, useNA = 'ifany')#Ex   Fa   Gd   TA 
+alldf$KQ <- 0
+alldf$KQ[alldf$KitchenQual == "Fa"] <- 1
+alldf$KQ[alldf$KitchenQual == "Ex"] <- 1
+alldf$KQi <- 0
+alldf$KQi[alldf$KitchenQual == "Gd"] <- 1
+alldf$KQii <- 0
+alldf$KQii[alldf$KitchenQual == "TA"] <- 1
+
+```
+Functional:
+almost all "typical" Note in description assumes that all are typical
+
+```{r}
+table(alldf$Functional, useNA = 'ifany')#Maj1 Maj2 Min1 Min2  Mod  Sev  Typ 
+alldf$Fun <- 0
+alldf$Fun[alldf$Functional == "Sev"] <- 1
+alldf$Fun[alldf$Functional == "Maj2"] <- 1
+alldf$Fun[alldf$Functional == "Maj1"] <- 1
+alldf$Fun[alldf$Functional == "Mod"] <- 1
+alldf$Fun[alldf$Functional == "Min1"] <- 1
+alldf$Fun[alldf$Functional == "Min2"] <- 1
+alldf$Funi <- 0
+alldf$Funi[alldf$Functional == "Typ"] <- 1
+
+```
+FireplaceQu:
+Quality. Majority- "NA"/None, or "Gd", "TA". Assume Fireplace is important for SalePrice. Separate out accordingly. 
+
+```{r}
+table(alldf$FireplaceQu, useNA = 'ifany')#Ex  Fa  Gd  Po  TA 
+alldf$Fire <- 0
+alldf$Fire[alldf$FireplaceQu == "Ex"] <- 1
+alldf$Fire[alldf$FireplaceQu == "Po"] <- 1
+alldf$Fire[alldf$FireplaceQu == "Fa"] <- 1
+alldf$Firei <- 0
+alldf$Firei[alldf$FireplaceQu == "TA"] <- 1
+alldf$Fireii <- 0
+alldf$Fireii[alldf$FireplaceQu == "Gd"] <- 1
+alldf$Fireiii <- 0
+alldf$Fireiii[is.na(alldf$FireplaceQu)] <- 1
+
+```
+GarageType:
+separate out "Detchd" & "Attached"
+
+```{r}
+table(alldf$GarageType, useNA = 'ifany')#2Types  Attchd Basment BuiltIn CarPort  Detchd 
+alldf$GT <- 0
+alldf$GT[alldf$GarageType == "2Types"] <- 1
+alldf$GT[alldf$GarageType == "CarPort"] <- 1
+alldf$GT[alldf$GarageType == "Basment"] <- 1
+alldf$GT[is.na(alldf$GarageType)] <- 1
+alldf$GT[alldf$GarageType == "BuiltIn"] <- 1
+alldf$GTi <- 0
+alldf$GTi[alldf$GarageType == "Detchd"] <- 1
+alldf$GTii <- 0
+alldf$GTii[alldf$GarageType == "Attchd"] <- 1
+
+```
+GarageFinish:
+
+```{r}
+table(alldf$GarageFinish, useNA = 'ifany')#Fin  RFn  Unf
+alldf$GF <- 0
+alldf$GF[is.na(alldf$GarageFinish)] <- 1
+alldf$GFi <- 0
+alldf$GFi[alldf$GarageFinish == "Fin"] <- 1
+alldf$GFii <- 0
+alldf$GFii[alldf$GarageFinish == "RFn"] <- 1
+alldf$GFiii <-0
+alldf$GFiii[alldf$GarageFinish == "Unf"] <- 1
+
+```
+GarageQual:
+Almost all "TA"
+
+```{r}
+table(alldf$GarageQual, useNA = 'ifany')#Ex   Fa   Gd   Po   TA 
+alldf$GQ <- 0
+alldf$GQ[alldf$GarageQual == "Ex"] <- 1
+alldf$GQ[alldf$GarageQual == "Po"] <- 1
+alldf$GQ[alldf$GarageQual == "Gd"] <- 1
+alldf$GQ[alldf$GarageQual == "Fa"] <- 1
+alldf$GQ[is.na(alldf$GarageQual)] <- 1
+alldf$GQi <- 0
+alldf$GQi[alldf$GarageQual == "TA"] <- 1
+
+```
+GarageCond:
+Almost all "TA"
+
+```{r}
+table(alldf$GarageCond, useNA = 'ifany')#Ex   Fa   Gd   Po   TA 
+alldf$GC <- 0
+alldf$GC[alldf$GarageCond == "Ex"] <- 1
+alldf$GC[alldf$GarageCond == "Po"] <- 1
+alldf$GC[alldf$GarageCond == "Gd"] <- 1
+alldf$GC[alldf$GarageCond == "Fa"] <- 1
+alldf$GC[is.na(alldf$GarageCond)] <- 1
+alldf$GCi <- 0
+alldf$GCi[alldf$GarageCond == "TA"] <- 1
+
+```
+PavedDrive:
+Majority is "Y"
+
+```{r}
+table(alldf$PavedDrive)#N    P    Y 
+alldf$PD <- 0
+alldf$PD[alldf$PavedDrive == "P"] <- 1
+alldf$PD[alldf$PavedDrive == "N"] <- 1
+alldf$PDi <- 0
+alldf$PDi[alldf$PavedDrive == "Y"] <- 1
+
+```
+PoolQC:
+quality of pool if they have one. Almost all is "NA"/None 
+
+```{r}
+table(alldf$PoolQC, useNA = 'ifany')#Ex Fa Gd 
+alldf$PQC <- 0
+alldf$PQC[alldf$PoolQC == "Fa"] <- 1
+alldf$PQC[alldf$PoolQC == "Ex"] <- 1
+alldf$PQC[alldf$PoolQC == "Gd"] <- 1
+alldf$PQCi <- 0
+alldf$PQCi[is.na(alldf$PoolQC)] <- 1
+
+```
+Fence:
+quality if they have one
+
+```{r}
+table(alldf$Fence, useNA = 'ifany')#GdPrv  GdWo MnPrv  MnWw 
+alldf$Fe <- 0
+alldf$Fe[alldf$Fence == "GdWo"] <- 1
+alldf$Fe[alldf$Fence == "GdPrv"] <- 1
+alldf$Fei <- 0
+alldf$Fei[alldf$Fence == "MnWw"] <- 1
+alldf$Fei[alldf$Fence == "MnPrv"] <- 1
+alldf$Feii <- 0
+alldf$Feii[is.na(alldf$Fence)] <- 1
+
+```
+MiscFeature:
+not covered in other categories. Majority is "NA"/none
+
+```{r}
+table(alldf$MiscFeature, useNA = 'ifany')#Gar2 Othr Shed TenC 
+alldf$MF <- 0
+alldf$MF[alldf$MiscFeature == "TenC"] <- 1
+alldf$MF[alldf$MiscFeature == "Othr"] <- 1
+alldf$MF[alldf$MiscFeature == "Gar2"] <- 1
+alldf$MF[alldf$MiscFeature == "Shed"] <- 1
+alldf$MFi <- 0
+alldf$MFi[is.na(alldf$MiscFeature)] <- 1
+
+```
+SaleType:
+Almost all are "WD" Warranty Deed- conventional. 
+
+```{r}
+table(alldf$SaleType, useNA = 'ifany')#COD   Con ConLD ConLI ConLw   CWD   New   Oth    WD  <NA>
+alldf$ST <- 0
+alldf$ST[alldf$SaleType == "Con"] <- 1
+alldf$ST[alldf$SaleType == "Oth"] <- 1
+alldf$ST[alldf$SaleType == "CWD"] <- 1
+alldf$ST[alldf$SaleType == "ConLw"] <- 1
+alldf$ST[alldf$SaleType == "ConLI"] <- 1
+alldf$ST[alldf$SaleType == "ConLD"] <- 1
+alldf$ST[alldf$SaleType == "COD"] <- 1
+alldf$ST[alldf$SaleType == "New"] <- 1
+alldf$STi <- 0
+alldf$STi[alldf$SaleType == "WD"] <- 1
+
+```
+SaleCondition:
+Almost all "Normal"
+
+```{r}
+table(alldf$SaleCondition, useNA = 'ifany')#Abnorml AdjLand  Alloca  Family  Normal Partial 
+alldf$SC <- 0
+alldf$SC[alldf$SaleCondition == "AdjLand"] <- 1
+alldf$SC[alldf$SaleCondition == "Alloca"] <- 1
+alldf$SC[alldf$SaleCondition == "Family"] <- 1
+alldf$SC[alldf$SaleCondition == "Abnorml"] <- 1
+alldf$SC[alldf$SaleCondition == "Partial"] <- 1
+alldf$SCi <- 0
+alldf$SCi[alldf$SaleCondition == "Normal"] <- 1
+
+```
+To get the number of rows an columns, use dim function
+```{r}
+dim(alldf)
+
+```
+           ----------fill in NA for numeric/integer vector with median value of the vector------------
+Returned the names of columns include NAs. Then defined function to replace NAs with median.    
+
+```{r}
+allNA_colms <- colnames(alldf)[colSums(is.na(alldf))>0]
+allNA_colms
+Fill_Num_NA <- function(num_colm) {
+colm_median <- median(num_colm,na.rm = T)
+return(colm_median)
+}
+for (i in 1: length(allNA_colms)) {
+  clm <- allNA_colms[i]
+  if (is.numeric(alldf[,clm]) | is.integer(alldf[,clm])) 
+    alldf[which(is.na(alldf[clm])),clm] <- Fill_Num_NA(alldf[,clm])
+}
+#sum(is.na(alldf)) 
+```
+At this point all numeric NA values should be filled, and we have represented character NA values in new columns. 
+remove chararter columns and create new data.frame.
+
+```{r}
+#lapply(alldf, class)
+#str(alldf)
+#dput(names(alldf))
+Newdf<-alldf[c("Id", "MSSubClass","LotFrontage","LotArea","OverallQual","OverallCond","YearBuilt","YearRemodAdd","MasVnrArea","BsmtFinSF1","BsmtFinSF2","BsmtUnfSF","TotalBsmtSF","X1stFlrSF","X2ndFlrSF","LowQualFinSF","GrLivArea","BsmtFullBath","BsmtHalfBath","FullBath","HalfBath","BedroomAbvGr","KitchenAbvGr","TotRmsAbvGrd","Fireplaces","GarageYrBlt","GarageCars","GarageArea","WoodDeckSF","OpenPorchSF","EnclosedPorch","X3SsnPorch","ScreenPorch","PoolArea","MiscVal","MoSold","YrSold","RH","C_all","FV","RM","RL","Paved","Ayes","ANone","LSIrr","LSReg","LCbad","LCgood","LCout","LCIn","pubU","SS","SM","Neighbor","NN","NS","NO","Con1","Con2","Bltype","HStyle","HSS","HS1","RStyle","RStyleG","RMatl","Ext1","Ext1i", "Ext1ii","Ext2","Ext2i","Ext2ii","Mas","MasB","MasN","ExtQ","ExtQ1","ExtC","ExtC1","Fd","Fdi","Fdii","BQ","BQi","BQii","BC","BCi","BE","BEi","BFT","BFTi","BFTii","BFTiii","BFT2","BFT2i","Heat","Heati","HeatQ","HeatQi","HeatQii","CA","E","Ei","KQ","KQi","KQii","Fun","Funi","Fire","Firei","Fireii","Fireiii","GT","GTi","GTii","GF","GFi","GFii","GFiii","GQ","GQi","GC","GCi","PD","PDi","PQC","PQCi","Fe","Fei","Feii","MF","MFi","ST","STi","SC","SCi","SalePrice")]
+#dim(Newdf)
+#head(Newdf)
+#View(Newdf)
+
+```
+              ----------------------------Normalizing numeric data-------------------------------
+For fitting the values in specific range, normalization needs to be done. some variables are on very different scales. Forexample, Cond1 is between 0 and 1 while is over 1000, so I need to transform all variables to comparable scales. Once I define my normalize function, I am required to normalize the numeric features in the data set. Instead of normalizing each of the variable individually, I use Lapply:
+
+```{r}
+normalize <- function(x) {
+return ((x - min(x)) / (max(x) - min(x))) }
+Newdf_n <- as.data.frame(lapply(Newdf[,2:length(Newdf)], normalize))
+#View(Newdf_n) 
+
+Newdf_n<-cbind(Id= Newdf[,1], Newdf_n)
+#View(Newdf_n)
+
+```
+I used boxplot to show the difference between normalizaed and non-normalized dataset.
+```{r}
+boxplot(Newdf, las=2, col=rainbow( ncol(Newdf)))
+boxplot(Newdf_n[,1:30],las = 2, col=rainbow( ncol(Newdf_n)))
+```
+At this point we have all columns with no NA's, and we've used the Median value to replace missing values in numeric variables. Split the Newdf back to training and test sets, and must set test SalePrice to Null. I got dimension of my original test and train data in addition to my new normalized dataset. 2919-1459=1460
+
+```{r}
+#dim(Newdf_n)
+#dim(testdf)
+#dim(traindf)
+traindf <- subset(Newdf[,1:138], Newdf$Id <= 1460)
+testdf <- subset(Newdf[,1:138], Newdf$Id > 1460)
+testdf[138]<-NULL
+#testdf$SalePrice
+#dim(testdf)
+#dim(traindf)
+#View(Newdf)
+```
+Explore outliers in SalePrice of Traindf set 
+
+```{r}
+bxplt.trn <- boxplot.stats(traindf$SalePrice, coef = 1.5, do.conf = TRUE, do.out = TRUE)
+bxplt.trn
+bxplt.trn$stats
+bxplt.trn$conf #co-efficents
+bxplt.trn$out #identify outliers
+outlrs <- bxplt.trn$out
+length(outlrs)
+traindf.backup <- traindf #emergency backup
+```
+              ---------------------Explore outliers of SalePrice---------------------------
+Identify prices from outlrs vector that I want to change, and replace them with NA. double check that I only replaced the correct prices. Replace the outlrs with the mean of the sale price, because after removing the outliers, mean will be more representative of the data. SalePrice is now more evenly distributed
+
+```{r}
+traindf$SalePrice[which(traindf$SalePrice %in% outlrs)] <- NA
+sum(is.na(traindf))
+traindf$SalePrice[which(is.na(traindf$SalePrice))] <- mean(traindf$SalePrice, na.rm = T)
+hist(traindf$SalePrice, probability = T, xlab = 'Sale Prices', col = 'Orange')
+
+```
+               -------------Feature Selection (remove redundant features)--------------
+I've been using RFE for feautre selection, but its been taking a very long time (8-10hrs). Because I'm running out of time, I'm going to try and run it with only 4 folds. I'm aware I would need to use more to improve. 
+
+```{r}
+library(caret)
+control_var<- rfeControl(functions=rfFuncs, method = "cv", number = 4)
+rfe_all<- rfe(traindf[,2:137], traindf[,138], sizes= 1:137, rfeControl = control_var,na.rm=T)
+print(rfe_all)
+predictors(rfe_all)
+plot(rfe_all, type = c("g","o"))
+#sum(is.na(traindf[,138]))
+
+```
+
+RFE returned 37 variables as ideal predictors.Created 2 new data.frames with only these variables for both test and train.Add SalePrice to Train, and not to Test 
+```{r}
+dput(names(traindf))
+newtrain_df<-traindf[c("GrLivArea","OverallQual","TotalBsmtSF","X1stFlrSF","YearBuilt","X2ndFlrSF","LotArea","OverallCond","ExtQ1","ExtQ","BsmtFinSF1","YearRemodAdd","GarageArea","Fireplaces","Fireiii","KQi","MSSubClass","FullBath","GarageYrBlt","GarageCars","BQi","GTii","BQii","HalfBath","BsmtUnfSF","TotRmsAbvGrd","RM","KQii","OpenPorchSF","CA","RL","Bltype","NN", "GTi",  "GFiii", "KitchenAbvGr", "BedroomAbvGr" ,"SalePrice")]
+#head(newtrain_df)
+#View(rfe_var)
+dim(newtrain_df)
+#
+dput(names(testdf))
+newtest_df<-testdf[c("GrLivArea","OverallQual","TotalBsmtSF","X1stFlrSF","YearBuilt","X2ndFlrSF","LotArea","OverallCond","ExtQ1","ExtQ","BsmtFinSF1","YearRemodAdd","GarageArea","Fireplaces","Fireiii","KQi","MSSubClass","FullBath","GarageYrBlt","GarageCars","BQi","GTii","BQii","HalfBath","BsmtUnfSF","TotRmsAbvGrd","RM","KQii","OpenPorchSF","CA","RL","Bltype","NN", "GTi",  "GFiii", "KitchenAbvGr","BedroomAbvGr")] 
+#dim(newtest_df)
+#View(newtrain_df)
+
+```
+                        -------------------------Modeling------------------------------
+Splited the new train dataset to 80/20                        
+
+```{r}
+train_rows<-sample(nrow(newtrain_df), floor(nrow(newtrain_df)*.8))
+train_new<-newtrain_df[train_rows,]
+test_new<-newtrain_df[-train_rows,]
+#dim(train_new)
+```
+             ------------------------------LM: Linear Model--------------------------------
+
+```{r}
+set.seed(123)
+model_saleprice<- lm(train_new$SalePrice~.,data= train_new)
+#summary(model_saleprice)
+prediction_prices<- predict(model_saleprice, interval = "prediction", newdata = test_new)
+#summary(prediction_prices)
+#str(prediction_prices)
+```
+plot models
+```{r}
+plot(model_saleprice, col= 'orange')
+plot(prediction_prices, col= 'orange')
+
+```
+error distribution
+
+```{r}
+errors<- prediction_prices[,"fit"] - test_new$SalePrice
+hist(errors, col= 'orange')
+
+```
+RMSE: Root Mean Square Error
+
+```{r}
+sqrt(prediction_prices[,"fit"]- test_new$SalePrice)^2/nrow(test_new)# produced NANs
+sqrt(sum((prediction_prices[,"fit"] - test_new$SalePrice)^2)/nrow(test_new))
+#Pred(10)
+rel_change<- abs(errors)/test_new$SalePrice
+table(rel_change<0.10)["TRUE"]/nrow(test_new)
+#PRED(25)
+rel_change<- 1 - ((test_new$SalePrice - abs (errors)) / test_new$SalePrice)
+table(rel_change<0.25)["TRUE"] / nrow (test_new)
+```
+                            ------------------LM2: Linear MOdel2-------------------------
+Using only top 5 predictors from RFE
+```{r}
+set.seed(123)
+model2_saleprice<- lm(train_new$SalePrice~train_new$GrLivArea+train_new$TotalBsmtSF+train_new$X1stFlrSF+train_new$YearBuilt+train_new$X2ndFlrSF)
+#summary(model2_saleprice)
+prediction_prices2<- predict(model2_saleprice, interval = "prediction", newdata = test_new)
+#summary(prediction_prices2)
+#str(prediction_prices2)
+```
+Plot Models:
+
+```{r}
+plot(model2_saleprice, col='orange')
+plot(prediction_prices2, col='orange')
+
+```
+error distribution
+```{r}
+errors<- prediction_prices2[,"fit"] - test_new$SalePrice
+hist(errors, col= 'orange')
+```
+RMSE:
+
+```{r}
+sqrt(prediction_prices2[,"fit"]- test_new$SalePrice)^2/nrow(test_new)
+sqrt(sum((prediction_prices2[,"fit"] - test_new$SalePrice)^2)/nrow(test_new))
+#Pred(10)
+rel_change<- abs(errors)/test_new$SalePrice
+table(rel_change<0.10)["TRUE"]/nrow(test_new)
+#PRED(25)
+rel_change<- 1 - ((test_new$SalePrice - abs (errors)) / test_new$SalePrice)
+table(rel_change<0.25)["TRUE"] / nrow (test_new)
+
+```
+                  -----------------------Regression Tree--------------------------
+```{r}
+library(rpart)
+library(rpart.plot)
+set.seed(123)
+regtree_train<- rpart(train_new$SalePrice~.,data=train_new)
+regtree_train
+#summary(regtree_train)
+rpart.plot(regtree_train, digits= 6, fallen.leaves = TRUE, type = 3, extra= 101, col= 'orange')
+### predict performance
+regtree_pred<- predict(regtree_train,test_new)
+#summary(regtree_pred)
+#summary(train_new$SalePrice)
+
+```
+Model is performing poorly at either end of the curve, but is perfoming well from the 1st-3rd quartile
+. Check correlation between predicted and test. 
+
+```{r}
+cor(regtree_pred,test_new$SalePrice)
+
+```
+Mean absolute error. How far are predicted prices from the true value?
+
+```{r}
+MAE<- function (actual, predicted){
+  mean(abs(actual-predicted))
+}
+MAE(regtree_pred,test_new$SalePrice)
+mean(train_new$SalePrice)
+MAE(169152.7,test_new$SalePrice)
+
+```
+                               ------------------Random Forest--------------------
+
+```{r}
+library(randomForest)
+model3<- randomForest(train_new$SalePrice~., data= train_new)
+model3
+pred3<-predict(model3, newdata= test_new)
+#table(pred3,test_new$SalePrice)
+#summary(pred3)
+#summary(test_new$SalePrice)
+MAE(pred3,test_new$SalePrice)
+hist(pred3, col= 'orange')
+
+```
+                           -------------------------Xgboost--------------------------
+Tried to use xgboost to predict using original test split I got the data in just for fun. This is much more complicated tool - so I got predictions- but chekcing the performance seems complicated. Much more exploring to do.                            
+```{r}
+library(Matrix)
+library(xgboost)
+set.seed(123)
+control_train<-xgb.DMatrix(data.matrix(newtrain_df[1:31]),label = newtrain_df$SalePrice)
+boost<- xgb.train(data=control_train, booster = "gbtree", max.depth=20, eta=0.015, nround=150, lambda = 0, lambda_bias = 0, alpha = 0, gamma=1, subsample = 0.5, colsample_bytree = 0.5, min_child_weight = 1, eval.metric = "error", eval.metric = "rmse", objective = "reg:linear")
+
+control_test<-xgb.DMatrix(data.matrix(newtest_df[1:31]))
+
+prediction<-predict(boost,control_test) 
+#prediction
+#summary(boost)
+#print(boost)
+#summary(control_train)
+#summary(prediction)
+
+error<- mean(as.numeric(prediction>0.25)!=newtest_df)
+print(error)
+
+```
