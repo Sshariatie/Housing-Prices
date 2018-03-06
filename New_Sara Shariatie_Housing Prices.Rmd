@@ -14,8 +14,8 @@ For getting the data, I got current working directory and ensure all files are p
 
 ```{r}
 getwd() 
-testdf <- read.csv(file= "C:/Users/Owner/Desktop/Projects/Housing Prices/CSV_txt_files/test.csv",header = T,stringsAsFactors = F, na.strings = c("","NA"), sep = ',')
-traindf <- read.csv(file= "C:/Users/Owner/Desktop/Projects/Housing Prices/CSV_txt_files/train.csv",header = T,stringsAsFactors = F, na.strings = c("","NA"), sep = ',') 
+testdf <- read.csv(file= "test.csv",header = T,stringsAsFactors = F, na.strings = c("","NA"), sep = ',')
+traindf <- read.csv(file= "train.csv",header = T,stringsAsFactors = F, na.strings = c("","NA"), sep = ',') 
 print(summary(testdf))
 print(summary(traindf))
 
